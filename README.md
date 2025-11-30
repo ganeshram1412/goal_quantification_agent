@@ -1,118 +1,141 @@
-# Goal Quantification Agent — README
+# Goal Quantification Agent — README (Updated)
 
-## 📌 Overview
-
-The **Goal Quantification Agent** is Step 2 in the financial planning pipeline.  
-It reads the client's SMART Goal from the FSO (Financial State Object), applies a fixed **6% inflation rate**, and computes the **Future Value (FV)** using:
-
-```
-FV = PV * (1 + i)^n
-```
-
-Where:
-
-- `PV` = Present goal amount
-- `i` = 0.06 (6% inflation assumption)
-- `n` = Time frame in years
-
-The agent updates the FSO by adding a new block: `quantification_data`.
+This README documents the updated **Goal Quantification Agent**, now redesigned to use a **deterministic Python tool** for Future Value (FV) computation rather than relying on the LLM for mathematical accuracy.
 
 ---
 
-## 🎯 Responsibilities
+## 📌 Purpose
 
-### Extracts From FSO
+The **Goal Quantification Agent** performs Step 2B of the financial planning workflow:
 
-Reads from:
+### ✔ Reads the SMART Goal
 
-```
-FSO["smart_goal_data"]["amount"]
-FSO["smart_goal_data"]["time_frame"]
-```
+### ✔ Computes Future Value using a tool
 
-### Performs FV Calculation
+### ✔ Updates the FSO with quantification_data
 
-Deterministic computation via LLM:
+### ✔ Returns ONLY the updated FSO (no text)
 
-- Applies 6% inflation
-- Computes the future expected cost of the goal
-- Creates a structured summary
-
-### Updates FSO
-
-Adds:
-
-```
-"quantification_data": {
-    "present_value": PV,
-    "inflation_rate_assumed": 0.06,
-    "timeline_years": n,
-    "future_value_required": FV
-}
-```
-
-### Output Requirements
-
-- Must return **only** the updated `financial_state_object`
-- No explanations, greetings, or extra text
-- No tools used — pure LLM computation
+This ensures downstream modules like Scenario Modeling, Asset Allocation, and Tax Planning receive accurate, inflation-adjusted goal values.
 
 ---
 
-## 🧠 Example
+## 🧠 What Changed?
 
-If:
+### **⛔ Old Behavior (Removed):**
 
-- PV = ₹10,00,000
-- n = 10 years
+- LLM performed FV calculation directly
+- Potential floating‑point inaccuracies
+- No deterministic reproducibility
 
-Then FV:
+### **✅ New Behavior (Improved):**
 
-```
-FV = 1000000 * (1.06)^10 ≈ 17,90,847.42
-```
+- Uses a deterministic Python tool:
+  `calculate_future_value(pv, years, rate=0.06)`
+- Guaranteed mathematical correctness
+- Ensures consistent output across runs
+- Cleaner agent prompt and fewer tokens
 
-FSO receives:
+---
 
-```
-"quantification_data": {
-  "present_value": 1000000,
-  "inflation_rate_assumed": 0.06,
-  "timeline_years": 10,
-  "future_value_required": 1790847.42
-}
+## 🔧 Tool Implementation
+
+```python
+def calculate_future_value(present_value: float, years: float, rate: float = 0.06) -> dict:
+    '''
+    Calculates future value using FV = PV * (1 + r)^n.
+
+    Parameters:
+    - present_value: float
+    - years: float
+    - rate: float = 0.06 (6% inflation)
+
+    Returns:
+    dict with:
+      - present_value
+      - years
+      - rate
+      - future_value
+    '''
+    future_value = present_value * ((1 + rate) ** years)
+    return {
+        "present_value": present_value,
+        "timeline_years": years,
+        "inflation_rate_assumed": rate,
+        "future_value_required": future_value,
+    }
 ```
 
 ---
 
-## 🧩 Agent Definition
+## 🧩 Updated Agent Logic
+
+### **FSO Input Expected**
+
+From:
+
+```
+FSO.smart_goal_data.amount
+FSO.smart_goal_data.time_frame
+```
+
+### **Workflow**
+
+1. Extract PV + years
+2. Call `calculate_future_value` tool
+3. Insert result into:
+
+```
+FSO["quantification_data"]
+```
+
+4. Output ONLY the updated `financial_state_object`
+
+---
+
+## 📘 Agent Definition (Updated)
 
 ```python
 goal_quantification_agent_tool = Agent(
     model='gemini-2.5-flash',
     name='goal_quantification_agent',
-    description='Calculates the Future Value (FV) of the client's goal using a 6% inflation assumption.',
+    description='Determines the future value of the client goal using a deterministic FV calculator tool.',
     instruction=optimized_instruction,
-    tools=[],
+    tools=[calculate_future_value],
     output_key="financial_state_object"
 )
 ```
 
 ---
 
-## 📂 File Purpose
+## 📈 Example
 
-Use this agent immediately after SMART Goal creation to pass inflation-adjusted values to all downstream agents like:
+If PV = ₹5,00,000  
+years = 15
 
-- Budget Optimizer
-- Asset Allocation Agent
-- Scenario Modeling Agent
+```
+FV = 500000 * (1.06)^15 = 1,197,567.34
+```
+
+FSO gets:
+
+```json
+"quantification_data": {
+  "present_value": 500000,
+  "timeline_years": 15,
+  "inflation_rate_assumed": 0.06,
+  "future_value_required": 1197567.34
+}
+```
 
 ---
 
-## ✨ Notes
+## 🧾 Notes
 
-- Completely deterministic
 - No user interaction
-- Designed for ADK multi-agent orchestration
-- Supports clean, pipeline-friendly FSO updates
+- No commentary in output
+- Designed for token‑efficient workflows
+- Guarantees accuracy & determinism
+- Supports all downstream planning agents
+
+---
